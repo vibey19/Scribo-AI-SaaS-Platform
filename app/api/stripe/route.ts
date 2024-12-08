@@ -6,9 +6,10 @@ import { stripe } from "@/lib/stripe";
 import { absoluteUrl } from "@/lib/utils";
 
 const settingsUrl = absoluteUrl("/settings");
- 
+
 export async function GET() {
   try {
+    // Authenticate the user
     const { userId } = auth();
     const user = await currentUser();
 
@@ -16,21 +17,24 @@ export async function GET() {
       return new NextResponse("Unauthorized", { status: 401 });
     }
 
+    // Retrieve user subscription from the database
     const userSubscription = await prismadb.userSubscription.findUnique({
       where: {
-        userId
-      }
-    })
+        userId,
+      },
+    });
 
-    if (userSubscription && userSubscription.stripeCustomerId) {
+    if (userSubscription?.stripeCustomerId) {
+      // If the user already has a subscription, create a billing portal session
       const stripeSession = await stripe.billingPortal.sessions.create({
         customer: userSubscription.stripeCustomerId,
         return_url: settingsUrl,
-      })
+      });
 
-      return new NextResponse(JSON.stringify({ url: stripeSession.url }))
+      return NextResponse.json({ url: stripeSession.url });
     }
 
+    // If no subscription exists, create a new Stripe checkout session
     const stripeSession = await stripe.checkout.sessions.create({
       success_url: settingsUrl,
       cancel_url: settingsUrl,
@@ -43,27 +47,27 @@ export async function GET() {
           price_data: {
             currency: "USD",
             product_data: {
-              name: "Genius Pro",
-              description: "Unlimited AI Generations"
+              name: "Scribo Pro",
+              description: "Unlimited AI Generations",
             },
-            unit_amount: 2000,
+            unit_amount: 2000, // Amount in cents (e.g., $20.00)
             recurring: {
-              interval: "month"
-            }
+              interval: "month",
+            },
           },
           quantity: 1,
         },
       ],
       metadata: {
-        userId,
+        userId, // Store user ID in metadata for identification
       },
-    })
+    });
 
-    return new NextResponse(JSON.stringify({ url: stripeSession.url }))
+    return NextResponse.json({ url: stripeSession.url });
   } catch (error) {
-    console.log("[STRIPE_ERROR]", error);
-    return new NextResponse("Internal Error", { status: 500 });
+    console.error("[STRIPE_ERROR]", error);
+    return new NextResponse("Internal Server Error", { status: 500 });
   }
-};
+}
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic";
